@@ -1,0 +1,66 @@
+.custom-node {
+  background: #1e293b;
+  color: #f8fafc;
+  border: 1.5px solid #334155;
+  border-radius: 8px;
+  min-width: 190px;
+  font-family: 'Inter', sans-serif;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.custom-node.selected {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.3);
+}
+
+.node-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-weight: 600;
+  font-size: 13px;
+  border-bottom: 1px solid #334155;
+}
+
+.sensor-node .node-header {
+  background: #0f766e;
+  border-radius: 6px 6px 0 0;
+}
+
+.math-node .node-header {
+  background: #1d4ed8;
+  border-radius: 6px 6px 0 0;
+}
+
+.action-node .node-header {
+  background: #b91c1c;
+  border-radius: 6px 6px 0 0;
+}
+
+.node-body {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+/* Wire animations */
+.edge-wire-idle {
+  stroke: #64748b;
+  stroke-width: 2px;
+  transition: stroke 0.2s ease;
+}
+
+.edge-wire-glow {
+  stroke: #00f5d4 !important;
+  stroke-width: 3.5px !important;
+  stroke-dasharray: 8;
+  animation: flowDash 0.6s linear infinite;
+  filter: drop-shadow(0 0 6px #00f5d4);
+}
+
+@keyframes flowDash {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
