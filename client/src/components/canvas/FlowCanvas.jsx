@@ -10,6 +10,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import axios from 'axios';
+import { Braces } from 'lucide-react';
 
 import SensorNode from './nodes/SensorNode';
 import MathNode from './nodes/MathNode';
@@ -18,7 +19,12 @@ import GlowEdge from './edges/GlowEdge';
 import NodeSidebar from './NodeSidebar';
 import PropertiesPanel from './PropertiesPanel';
 import WorkflowToolbar from './WorkflowToolbar';
-import { serializeAndValidateGraph } from '../../utils/graphSerializer';
+import RulePreviewDrawer from './RulePreviewDrawer';
+import {
+  serializeAndValidateGraph,
+  parseImportedGraph,
+  compileRulePreview,
+} from '../../utils/graphSerializer';
 import '../../styles/canvas.css';
 
 const nodeTypes = {
@@ -47,6 +53,8 @@ export default function FlowCanvas({ activeEdgeIds = new Set() }) {
   const [isActive, setIsActive] = useState(true);
   const [statusMsg, setStatusMsg] = useState('');
   const [simulatedEdgeIds, setSimulatedEdgeIds] = useState(new Set());
+  const [showPreviewDrawer, setShowPreviewDrawer] = useState(false);
+  const [autoStream, setAutoStream] = useState(false);
 
   const fetchWorkflows = useCallback(async () => {
     try {
@@ -117,7 +125,6 @@ export default function FlowCanvas({ activeEdgeIds = new Set() }) {
     );
   };
 
-  // Delete a node and clean up all edges attached to it
   const handleDeleteNode = (nodeId) => {
     setNodes((nds) => nds.filter((n) => n.id !== nodeId));
     setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
@@ -125,7 +132,6 @@ export default function FlowCanvas({ activeEdgeIds = new Set() }) {
     setStatusMsg(`Removed ${nodeId}`);
   };
 
-  // Load pre-wired 4-node factory demo pipeline
   const handleLoadDemoPreset = () => {
     const demoNodes = [
       { id: 'node_1', type: 'sensorNode', position: { x: 60, y: 160 }, data: { sensorId: 'turbine-01', metric: 'temperature' } },
@@ -145,6 +151,38 @@ export default function FlowCanvas({ activeEdgeIds = new Set() }) {
     setEdges(demoEdges);
     setSelectedNodeId(null);
     setStatusMsg('Loaded Turbine Overheat demo pipeline');
+  };
+
+  const handleExportJson = () => {
+    try {
+      const payload = serializeAndValidateGraph(workflowName, nodes, edges);
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const slug = (workflowName || 'nexusflow-rule').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      link.href = url;
+      link.download = `${slug}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setStatusMsg(`Exported ${slug}.json`);
+    } catch (err) {
+      setStatusMsg(`Export failed: ${err.message}`);
+    }
+  };
+
+  const handleImportJson = (rawText) => {
+    try {
+      const restored = parseImportedGraph(rawText);
+      setActiveWorkflowId('');
+      setWorkflowName(restored.name);
+      setIsActive(restored.isActive);
+      setNodes(restored.nodes);
+      setEdges(restored.edges);
+      setSelectedNodeId(null);
+      setStatusMsg(`Imported "${restored.name}" (${restored.nodes.length} nodes)`);
+    } catch (err) {
+      setStatusMsg(`Import failed: ${err.message}`);
+    }
   };
 
   const handleSelectWorkflow = (wfId) => {
@@ -173,6 +211,7 @@ export default function FlowCanvas({ activeEdgeIds = new Set() }) {
     setActiveWorkflowId('');
     setWorkflowName('New IoT Rule');
     setIsActive(true);
+    setAutoStream(false);
     setNodes([]);
     setEdges([]);
     setSelectedNodeId(null);
@@ -207,12 +246,8 @@ export default function FlowCanvas({ activeEdgeIds = new Set() }) {
     }
   };
 
-  const handleSimulatePulse = () => {
-    if (edges.length === 0) {
-      setStatusMsg('Connect at least two nodes to test wire glow.');
-      return;
-    }
-    setStatusMsg('Simulating live telemetry stream...');
+  const triggerPulseOnce = useCallback(() => {
+    if (edges.length === 0) return;
     edges.forEach((edge, index) => {
       setTimeout(() => {
         setSimulatedEdgeIds((prev) => new Set(prev).add(edge.id));
@@ -225,7 +260,29 @@ export default function FlowCanvas({ activeEdgeIds = new Set() }) {
         }, 700);
       }, index * 350);
     });
+  }, [edges]);
+
+  const handleSimulatePulse = () => {
+    if (edges.length === 0) {
+      setStatusMsg('Connect at least two nodes to test wire glow.');
+      return;
+    }
+    setStatusMsg('Simulating live telemetry stream...');
+    triggerPulseOnce();
   };
+
+  // Optional periodic pulse stream for live demos
+  useEffect(() => {
+    if (!autoStream || edges.length === 0) return;
+    triggerPulseOnce();
+    const interval = setInterval(triggerPulseOnce, 2200);
+    return () => clearInterval(interval);
+  }, [autoStream, edges, triggerPulseOnce]);
+
+  const compiledPreview = useMemo(
+    () => compileRulePreview(workflowName, nodes, edges),
+    [workflowName, nodes, edges]
+  );
 
   const renderedEdges = useMemo(() => {
     return edges.map((edge) => ({
@@ -252,13 +309,23 @@ export default function FlowCanvas({ activeEdgeIds = new Set() }) {
         onToggleActive={handleToggleActive}
         onDeploy={handleDeployPipeline}
         onSimulatePulse={handleSimulatePulse}
+        onExportJson={handleExportJson}
+        onImportJson={handleImportJson}
         statusMsg={statusMsg}
       />
 
       <div className="flex flex-1 overflow-hidden">
         <NodeSidebar onLoadDemoPreset={handleLoadDemoPreset} />
 
-        <div className="flex-1 h-full" ref={reactFlowWrapper}>
+        <div className="flex-1 h-full relative" ref={reactFlowWrapper}>
+          <button
+            onClick={() => setShowPreviewDrawer((prev) => !prev)}
+            className="absolute bottom-4 left-16 z-10 flex items-center gap-1.5 bg-slate-900/95 hover:bg-slate-800 border border-slate-700 text-teal-300 text-xs font-medium px-3 py-1.5 rounded shadow"
+          >
+            <Braces size={14} />
+            {showPreviewDrawer ? 'Hide Rule JSON' : 'Inspect Rule JSON'}
+          </button>
+
           <ReactFlowProvider>
             <ReactFlow
               nodes={nodes}
@@ -290,6 +357,14 @@ export default function FlowCanvas({ activeEdgeIds = new Set() }) {
           onDeleteNode={handleDeleteNode}
         />
       </div>
+
+      <RulePreviewDrawer
+        isOpen={showPreviewDrawer}
+        onClose={() => setShowPreviewDrawer(false)}
+        compiledPreview={compiledPreview}
+        autoStream={autoStream}
+        onToggleAutoStream={() => setAutoStream((prev) => !prev)}
+      />
     </div>
   );
 }
